@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Сад д. Макара - Final</title>
+    <link rel="manifest" href="manifest.json">
+    <style>
+        * { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; outline: none; }
+        body { margin: 0; background: #1a1a1a; overflow: hidden; touch-action: none; font-family: sans-serif; }
+        
+        #main-menu {
+            position: absolute; width: 100%; height: 100%;
+            background: radial-gradient(circle, #2ecc71, #27ae60); z-index: 500;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; color: white;
+        }
+        .menu-btn { padding: 15px 40px; font-size: 20px; border-radius: 15px; border: none; background: white; color: #27ae60; font-weight: bold; margin: 10px; box-shadow: 0 5px 0 #1e8449; }
+
+        #game-ui { display: none; position: absolute; width: 100%; height: 100%; pointer-events: none; z-index: 100; }
+        #top-bar { position: absolute; top: 15px; left: 15px; display: flex; flex-direction: column; gap: 10px; pointer-events: auto; }
+        #stats { color: white; background: rgba(0,0,0,0.7); padding: 10px 20px; border-radius: 15px; font-size: 20px; font-weight: bold; }
+        #back-btn { padding: 8px; background: #e74c3c; color: white; border: none; border-radius: 8px; font-weight: bold; }
+
+        #shop-container { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; align-items: flex-end; pointer-events: auto; width: 160px; }
+        #game-shop { display: flex; flex-direction: column; gap: 5px; width: 100%; }
+        .shop-item { background: white; border: 2px solid #ddd; padding: 8px; border-radius: 10px; font-size: 13px; font-weight: bold; display: flex; justify-content: space-between; }
+        .shop-item.active { border-color: #f39c12; background: #fef5e7; }
+
+        #controls { position: absolute; bottom: 30px; width: 100%; display: flex; justify-content: space-around; pointer-events: none; }
+        .dpad { display: grid; grid-template-columns: repeat(3, 65px); gap: 8px; pointer-events: auto; }
+        .btn { width: 65px; height: 65px; background: rgba(255,255,255,0.2); border: 2px solid white; border-radius: 15px; color: white; font-size: 28px; display: flex; align-items: center; justify-content: center; }
+        .btn-act { width: 90px; height: 90px; background: #ff9800; border-radius: 50%; border: 4px solid white; color: white; pointer-events: auto; }
+    </style>
+</head>
+<body>
+
+<div id="main-menu">
+    <h1>САД д. МАКАРА</h1>
+    <button class="menu-btn" onclick="startGame()">ИГРАТЬ</button>
+</div>
+
+<div id="game-ui">
+    <div id="top-bar">
+        <div id="stats">💰 <span id="moneyText">100</span></div>
+        <button id="back-btn" onclick="exitToMenu()">В МЕНЮ</button>
+    </div>
+    <div id="shop-container"><div id="game-shop"></div></div>
+    <div id="controls">
+        <div class="dpad">
+            <div></div><div class="btn" id="b-u">▲</div><div></div>
+            <div class="btn" id="b-l">◀</div><div class="btn" id="b-d">▼</div><div class="btn" id="b-r">▶</div>
+        </div>
+        <button class="btn-act" id="b-a">ОК</button>
+    </div>
+</div>
+
+<script type="importmap"> { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } } </script>
+<script type="module">
+    import * as THREE from 'three';
+
+    let isGameRunning = false, money = 100, selected = null;
+    const plants = [];
+    const move = { u:0, d:0, l:0, r:0 };
+
+    const ITEMS = [
+        { n: '🍎', c: 5, cl: 0xff4d4d, r: 15, p: 90 },
+        { n: '🥕', c: 10, cl: 0xffa502, r: 30, p: 80 },
+        { n: '🫐', c: 50, cl: 0x4834d4, r: 160, p: 40 },
+        { n: '💎', c: 500, cl: 0x0fbcf9, r: 2000, p: 5 }
+    ];
+
+    // ИНИЦИАЛИЗАЦИЯ THREE.JS
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x7bed9f);
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.MeshStandardMaterial({ color: 0x2ed573 }));
+    ground.rotation.x = -Math.PI/2;
+    scene.add(ground);
+
+    const player = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 0.5), new THREE.MeshStandardMaterial({ color: 0x1e90ff }));
+    player.position.y = 0.5;
+    scene.add(player);
+    camera.position.set(0, 10, 10);
+
+    // УПРАВЛЕНИЕ
+    const setupBtn = (id, k) => {
+        const el = document.getElementById(id);
+        el.addEventListener('touchstart', (e) => { e.preventDefault(); move[k] = 1; });
+        el.addEventListener('touchend', () => move[k] = 0);
+    };
+    setupBtn('b-u','u'); setupBtn('b-d','d'); setupBtn('b-l','l'); setupBtn('b-r','r');
+
+    // МАГАЗИН
+    function refreshShop() {
+        const shop = document.getElementById('game-shop');
+        shop.innerHTML = '';
+        let available = ITEMS.sort(() => 0.5 - Math.random()).slice(0, 4);
+        available.forEach((item, i) => {
+            item.stock = Math.floor(Math.random()*5)+3;
+            const div = document.createElement('div');
+            div.className = 'shop-item' + (i===0 ? ' active' : '');
+            div.innerHTML = `<span>${item.n} $${item.c}</span> <span id="st-${i}">x${item.stock}</span>`;
+            div.onclick = () => {
+                document.querySelectorAll('.shop-item').forEach(el => el.classList.remove('active'));
+                div.classList.add('active');
+                selected = item;
+                selected.uiId = i;
+            };
+            shop.appendChild(div);
+            if(i === 0) { selected = item; selected.uiId = 0; }
+        });
+    }
+
+    // ДЕЙСТВИЕ (ОК)
+    document.getElementById('b-a').onclick = () => {
+        if(!isGameRunning) return;
+        let collected = false;
+
+        // 1. Пытаемся собрать
+        for(let i = plants.length - 1; i >= 0; i--) {
+            let group = plants[i];
+            if(group[0].position.distanceTo(player.position) < 1.8) {
+                group.forEach(p => scene.remove(p));
+                money += (group[0].userData.reward * group.length);
+                plants.splice(i, 1);
+                collected = true;
+                break;
+            }
+        }
+
+        // 2. Если не собрали — сажаем
+        if(!collected && selected && selected.stock > 0 && money >= selected.c) {
+            money -= selected.c;
+            selected.stock--;
+            document.getElementById(`st-${selected.uiId}`).innerText = 'x' + selected.stock;
+            
+            const group = [];
+            const count = 3 + Math.floor(Math.random()*3);
+            for(let i=0; i<count; i++) {
+                const p = new THREE.Mesh(new THREE.SphereGeometry(0.3), new THREE.MeshStandardMaterial({ color: selected.cl }));
+                p.position.set(player.position.x + (Math.random()-0.5)*1.5, 0.3, player.position.z + (Math.random()-0.5)*1.5);
+                p.userData = { reward: selected.r };
+                scene.add(p);
+                group.push(p);
+            }
+            plants.push(group);
+        }
+        document.getElementById('moneyText').innerText = Math.floor(money);
+    };
+
+    window.startGame = () => {
+        document.getElementById('main-menu').style.display = 'none';
+        document.getElementById('game-ui').style.display = 'block';
+        isGameRunning = true;
+        refreshShop();
+    };
+
+    window.exitToMenu = () => {
+        localStorage.setItem('garden_money', money);
+        location.reload();
+    };
+
+    function animate(time) {
+        requestAnimationFrame(animate);
+        if(isGameRunning) {
+            const s = 0.15;
+            if(move.u) player.position.z -= s;
+            if(move.d) player.position.z += s;
+            if(move.l) player.position.x -= s;
+            if(move.r) player.position.x += s;
+            
+            // Анимация покачивания при ходьбе
+            if(move.u || move.d || move.l || move.r) {
+                player.position.y = 0.5 + Math.sin(time * 0.01) * 0.1;
+            }
+
+            camera.position.lerp(new THREE.Vector3(player.position.x, 10, player.position.z + 10), 0.1);
+            camera.lookAt(player.position);
+        }
+        renderer.render(scene, camera);
+    }
+
+    // Загрузка
+    const savedMoney = localStorage.getItem('garden_money');
+    if(savedMoney) money = parseInt(savedMoney);
+    document.getElementById('moneyText').innerText = money;
+
+    animate();
+</script>
+</body>
+</html>
