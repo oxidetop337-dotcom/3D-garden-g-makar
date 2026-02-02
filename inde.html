@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Garden Ultra: Horror Forest</title>
+    <style>
+        * { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; outline: none; box-sizing: border-box; }
+        body { margin: 0; background: #000; overflow: hidden; touch-action: none; font-family: 'Segoe UI', sans-serif; }
+        
+        /* Меню */
+        #main-menu {
+            position: absolute; width: 100%; height: 100%;
+            background: linear-gradient(135deg, #1e272e, #0fbcf9); z-index: 500;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; color: white;
+        }
+        .menu-btn { padding: 18px 60px; font-size: 26px; border-radius: 50px; border: none; background: #ff3f34; color: white; font-weight: bold; cursor: pointer; box-shadow: 0 10px 20px rgba(0,0,0,0.4); transition: 0.2s; }
+        .menu-btn:active { transform: scale(0.9); }
+
+        /* Интерфейс */
+        #game-ui { display: none; position: absolute; width: 100%; height: 100%; pointer-events: none; z-index: 100; }
+        #top-bar { position: absolute; top: 15px; left: 15px; display: flex; flex-direction: column; gap: 10px; pointer-events: auto; }
+        #stats { color: white; background: rgba(0,0,0,0.6); backdrop-filter: blur(10px); padding: 12px 25px; border-radius: 30px; font-size: 22px; font-weight: bold; border: 1px solid rgba(255,255,255,0.2); }
+        #back-btn { padding: 8px; background: #57606f; color: white; border: none; border-radius: 12px; font-size: 12px; }
+
+        /* Магазин */
+        #shop-container { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; align-items: flex-end; pointer-events: auto; width: 180px; }
+        #game-shop { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+        .shop-item { background: rgba(255,255,255,0.9); border: 3px solid transparent; padding: 10px; border-radius: 15px; font-size: 14px; font-weight: bold; color: #2d3436; display: flex; justify-content: space-between; }
+        .shop-item.active { border-color: #ffdd59; transform: scale(1.05); background: #fff; }
+        #shop-timer { color: white; background: rgba(0,0,0,0.4); padding: 5px 10px; border-radius: 10px; font-size: 12px; margin-top: 5px; }
+
+        /* Управление */
+        #controls { position: absolute; bottom: 40px; width: 100%; display: flex; justify-content: space-around; pointer-events: none; }
+        .dpad { display: grid; grid-template-columns: repeat(3, 75px); gap: 12px; pointer-events: auto; }
+        .btn { width: 75px; height: 75px; background: rgba(255,255,255,0.15); border: 2px solid white; border-radius: 25px; color: white; font-size: 32px; display: flex; align-items: center; justify-content: center; }
+        .btn-act { width: 110px; height: 110px; background: linear-gradient(45deg, #ff3f34, #ffdd59); border-radius: 50%; border: 5px solid white; color: white; pointer-events: auto; font-size: 24px; font-weight: bold; box-shadow: 0 10px 20px rgba(0,0,0,0.3); }
+
+        /* Скример */
+        #scrimer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: #000; display: none; z-index: 1000;
+            flex-direction: column; justify-content: center; align-items: center;
+            color: #ff0000; font-size: 40px; text-align: center; font-weight: bold;
+            text-shadow: 0 0 30px red;
+        }
+    </style>
+</head>
+<body>
+
+<audio id="screamSound" src="scream.mp3" preload="auto"></audio>
+
+<div id="scrimer">КУДА ТЫ ИДЕШЬ?<br><span style="font-size: 20px;">ВЕРНИСЬ В САД</span></div>
+
+<div id="main-menu">
+    <h1 style="font-size: 40px; margin-bottom: 30px; text-shadow: 0 5px 15px rgba(0,0,0,0.5);">GARDEN ULTRA</h1>
+    <button class="menu-btn" onclick="startGame()">ИГРАТЬ</button>
+</div>
+
+<div id="game-ui">
+    <div id="top-bar">
+        <div id="stats">💰 <span id="moneyText">100</span></div>
+        <button id="back-btn" onclick="exitToMenu()">В МЕНЮ</button>
+    </div>
+    <div id="shop-container">
+        <div id="game-shop"></div>
+        <div id="shop-timer">05:00</div>
+    </div>
+    <div id="controls">
+        <div class="dpad">
+            <div></div><div class="btn" id="b-u">▲</div><div></div>
+            <div class="btn" id="b-l">◀</div><div class="btn" id="b-d">▼</div><div class="btn" id="b-r">▶</div>
+        </div>
+        <button class="btn-act" id="b-a">OK</button>
+    </div>
+</div>
+
+<script type="importmap"> { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } } </script>
+<script type="module">
+    import * as THREE from 'three';
+
+    let isGameRunning = false, money = 100, selected = null, currentShopItems = [];
+    const plants = [], move = { u:0, d:0, l:0, r:0 }, particles = [], trees = [];
+
+    const ALL_ITEMS = [
+        {n:'🍎',c:5,cl:0xff4d4d,r:15,p:95}, {n:'🥕',c:10,cl:0xffa502,r:30,p:90}, {n:'🍅',c:15,cl:0xff6b81,r:45,p:85},
+        {n:'🍆',c:20,cl:0xa55eea,r:65,p:80}, {n:'🌽',c:30,cl:0xffed33,r:100,p:75}, {n:'🍇',c:45,cl:0x706fd3,r:150,p:70},
+        {n:'🍉',c:60,cl:0x26de81,r:200,p:65}, {n:'🍓',c:80,cl:0xff4757,r:280,p:60}, {n:'💎',c:50000,cl:0x0fbcf9,r:400000,p:1}
+        // ... (остальные предметы можно добавить по аналогии)
+    ];
+
+    // СЦЕНА
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0a0a0a); // Темный фон для жути
+    scene.fog = new THREE.Fog(0x0a0a0a, 5, 30);
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    document.body.appendChild(renderer.domElement);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+    const sun = new THREE.DirectionalLight(0xffffff, 0.8);
+    sun.position.set(10, 20, 10);
+    sun.castShadow = true;
+    scene.add(sun);
+
+    // ЗЕМЛЯ (САД)
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(35, 35), new THREE.MeshStandardMaterial({ color: 0x1e3700 }));
+    ground.rotation.x = -Math.PI/2;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    // ПЕРСОНАЖ
+    const playerGroup = new THREE.Group();
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.25), new THREE.MeshStandardMaterial({ color: 0xffdbac }));
+    head.position.y = 1.1; playerGroup.add(head);
+    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.25, 0.5), new THREE.MeshStandardMaterial({ color: 0x2f3542 }));
+    torso.position.y = 0.65; playerGroup.add(torso);
+    const legL = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.5, 0.12), new THREE.MeshStandardMaterial({ color: 0x1e272e }));
+    legL.position.set(-0.15, 0.25, 0); playerGroup.add(legL);
+    const legR = legL.clone(); legR.position.x = 0.15; playerGroup.add(legR);
+    scene.add(playerGroup);
+
+    // ЛЕС
+    function createTree(x, z) {
+        const g = new THREE.Group();
+        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.3, 2.5), new THREE.MeshStandardMaterial({color: 0x2c1a0b}));
+        trunk.position.y = 1.25; g.add(trunk);
+        const leaves = new THREE.Mesh(new THREE.ConeGeometry(1.2, 3, 8), new THREE.MeshStandardMaterial({color: 0x052100}));
+        leaves.position.y = 3; g.add(leaves);
+        g.position.set(x, 0, z); scene.add(g); trees.push(g);
+    }
+    // Генерация вокруг сада
+    for(let i=0; i<60; i++) {
+        let a = Math.random() * Math.PI * 2, r = 20 + Math.random() * 40;
+        createTree(Math.cos(a)*r, Math.sin(a)*r);
+    }
+
+    // МАГАЗИН И ТАЙМЕР
+    function refreshShop(force = false) {
+        const saved = localStorage.getItem('g_shop');
+        const last = localStorage.getItem('g_time');
+        const now = Date.now();
+        if(!force && saved && (now - last < 300000)) {
+            currentShopItems = JSON.parse(saved);
+        } else {
+            currentShopItems = [];
+            while(currentShopItems.length < 4) {
+                let item = ALL_ITEMS[Math.floor(Math.random()*ALL_ITEMS.length)];
+                if(!currentShopItems.find(i=>i.n===item.n)) {
+                    currentShopItems.push({...item, stock: Math.floor(Math.random()*5)+3});
+                }
+            }
+            localStorage.setItem('g_shop', JSON.stringify(currentShopItems));
+            localStorage.setItem('g_time', now);
+        }
+        renderShopUI();
+    }
+
+    function renderShopUI() {
+        const shop = document.getElementById('game-shop');
+        shop.innerHTML = '';
+        currentShopItems.forEach((item, i) => {
+            const div = document.createElement('div');
+            div.className = 'shop-item' + (i===0 ? ' active' : '');
+            div.innerHTML = `<span>${item.n} $${item.c}</span> <span>x${item.stock}</span>`;
+            div.onclick = () => {
+                document.querySelectorAll('.shop-item').forEach(e=>e.classList.remove('active'));
+                div.classList.add('active'); selected = item;
+            };
+            shop.appendChild(div);
+            if(i===0) selected = item;
+        });
+    }
+
+    // СКРИМЕР
+    function showScrimer() {
+        isGameRunning = false;
+        const scr = document.getElementById('scrimer');
+        const snd = document.getElementById('screamSound');
+        
+        if(navigator.vibrate) navigator.vibrate([500, 100, 500]);
+        scr.style.display = 'flex';
+        snd.currentTime = 0;
+        snd.play().catch(()=>{});
+
+        setTimeout(() => {
+            playerGroup.position.set(0, 0, 0);
+            scr.style.display = 'none';
+            isGameRunning = true;
+        }, 1500);
+    }
+
+    // ЧАСТИЦЫ
+    function createDust() {
+        const p = new THREE.Mesh(new THREE.SphereGeometry(0.05), new THREE.MeshBasicMaterial({color: 0x3d2b1f}));
+        p.position.set(playerGroup.position.x, 0.1, playerGroup.position.z);
+        p.userData = { life: 30, v: new THREE.Vector3((Math.random()-0.5)*0.05, 0.05, (Math.random()-0.5)*0.05) };
+        scene.add(p); particles.push(p);
+    }
+
+    // ДЕЙСТВИЕ
+    document.getElementById('b-a').onclick = () => {
+        if(!isGameRunning) return;
+        let collected = false;
+        for(let i=plants.length-1; i>=0; i--) {
+            if(plants[i][0].position.distanceTo(playerGroup.position) < 2) {
+                plants[i].forEach(obj => { money += obj.userData.r; scene.remove(obj); });
+                plants.splice(i,1); collected = true; break;
+            }
+        }
+        if(!collected && selected && selected.stock > 0 && money >= selected.c) {
+            money -= selected.c; selected.stock--;
+            localStorage.setItem('g_shop', JSON.stringify(currentShopItems));
+            renderShopUI();
+            const grp = [];
+            for(let j=0; j<4; j++) {
+                const p = new THREE.Mesh(new THREE.SphereGeometry(0.3), new THREE.MeshStandardMaterial({color: selected.cl}));
+                p.position.set(playerGroup.position.x+(Math.random()-0.5)*2, 0.3, playerGroup.position.z+(Math.random()-0.5)*2);
+                p.userData = { r: selected.r }; scene.add(p); grp.push(p);
+            }
+            plants.push(grp);
+        }
+        document.getElementById('moneyText').innerText = money;
+    };
+
+    const setupBtn = (id, k) => {
+        const el = document.getElementById(id);
+        el.addEventListener('touchstart', (e)=>{ e.preventDefault(); move[k]=1; });
+        el.addEventListener('touchend', ()=>{ move[k]=0; });
+    };
+    setupBtn('b-u','u'); setupBtn('b-d','d'); setupBtn('b-l','l'); setupBtn('b-r','r');
+
+    window.startGame = () => {
+        document.getElementById('main-menu').style.display = 'none';
+        document.getElementById('game-ui').style.display = 'block';
+        isGameRunning = true; refreshShop();
+    };
+
+    window.exitToMenu = () => { localStorage.setItem('g_money', money); location.reload(); };
+
+    function animate(t) {
+        requestAnimationFrame(animate);
+        if(isGameRunning) {
+            const s = 0.16;
+            let moving = false;
+            if(move.u) { playerGroup.position.z -= s; moving = true; }
+            if(move.d) { playerGroup.position.z += s; moving = true; }
+            if(move.l) { playerGroup.position.x -= s; moving = true; }
+            if(move.r) { playerGroup.position.x += s; moving = true; }
+
+            if(moving) {
+                legL.rotation.x = Math.sin(t*0.01)*0.7;
+                legR.rotation.x = Math.sin(t*0.01 + Math.PI)*0.7;
+                playerGroup.position.y = Math.abs(Math.sin(t*0.01)*0.1);
+                if(Math.random()<0.2) createDust();
+            }
+
+            // Проверка на скример (45 метров от центра)
+            if(playerGroup.position.length() > 45) showScrimer();
+
+            camera.position.lerp(new THREE.Vector3(playerGroup.position.x, 8, playerGroup.position.z + 10), 0.1);
+            camera.lookAt(playerGroup.position);
+
+            // Таймер магазина
+            const left = 300000 - (Date.now() - localStorage.getItem('g_time'));
+            if(left <= 0) refreshShop(true);
+            const m = Math.floor(left/60000), sec = Math.floor((left%60000)/1000);
+            document.getElementById('shop-timer').innerText = `Обновление: ${m}:${sec<10?'0':''}${sec}`;
+        }
+
+        particles.forEach((p, i) => {
+            p.position.add(p.userData.v); p.userData.life--;
+            if(p.userData.life <= 0) { scene.remove(p); particles.splice(i,1); }
+        });
+
+        renderer.render(scene, camera);
+    }
+
+    const savedMoney = localStorage.getItem('g_money');
+    if(savedMoney) money = parseInt(savedMoney);
+    document.getElementById('moneyText').innerText = money;
+    animate(0);
+</script>
+</body>
+</html>
