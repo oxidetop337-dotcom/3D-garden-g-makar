@@ -1,0 +1,176 @@
+# 3D-garden-g-makar
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>3D Сад д. Макара</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#27ae60">
+    <style>
+        * { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; outline: none; }
+        body { margin: 0; background: #1a1a1a; overflow: hidden; touch-action: none; font-family: sans-serif; }
+        
+        /* ГЛАВНОЕ МЕНЮ */
+        #main-menu {
+            position: absolute; width: 100%; height: 100%;
+            background: radial-gradient(circle, #2ecc71, #27ae60); z-index: 500;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; color: white;
+        }
+        .menu-btn { padding: 15px 40px; font-size: 20px; border-radius: 15px; border: none; background: white; color: #27ae60; font-weight: bold; margin: 10px; box-shadow: 0 5px 0 #1e8449; }
+        .menu-btn:active { transform: translateY(3px); box-shadow: 0 2px 0 #1e8449; }
+
+        /* ИГРОВОЙ ИНТЕРФЕЙС */
+        #game-ui { display: none; position: absolute; width: 100%; height: 100%; pointer-events: none; z-index: 100; }
+        
+        #top-bar { position: absolute; top: 15px; left: 15px; display: flex; flex-direction: column; gap: 10px; pointer-events: auto; }
+        #stats { color: white; background: rgba(0,0,0,0.7); padding: 10px 20px; border-radius: 15px; font-size: 20px; font-weight: bold; width: fit-content; }
+        #back-to-menu-btn { padding: 8px 15px; background: #e74c3c; color: white; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; }
+
+        /* МАГАЗИН */
+        #shop-container { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; align-items: flex-end; pointer-events: auto; width: 170px; }
+        #game-shop { display: flex; flex-direction: column; gap: 5px; width: 100%; }
+        .shop-item { background: white; border: 2px solid #ddd; padding: 8px; border-radius: 10px; font-size: 13px; font-weight: bold; color: #333; display: flex; justify-content: space-between; }
+        .shop-item.active { border-color: #e67e22; background: #fff3e0; }
+        #shop-timer { color: white; background: rgba(0,0,0,0.5); padding: 4px; border-radius: 5px; font-size: 11px; margin-top: 5px; width: 100%; text-align: center; }
+
+        /* УПРАВЛЕНИЕ */
+        #controls { position: absolute; bottom: 30px; width: 100%; display: flex; justify-content: space-around; pointer-events: none; }
+        .dpad { display: grid; grid-template-columns: repeat(3, 65px); gap: 8px; pointer-events: auto; }
+        .btn { width: 65px; height: 65px; background: rgba(255,255,255,0.2); border: 2px solid white; border-radius: 15px; color: white; font-size: 28px; display: flex; align-items: center; justify-content: center; }
+        .btn-act { width: 90px; height: 90px; background: #ff9800; border-radius: 50%; border: 4px solid white; color: white; pointer-events: auto; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div id="main-menu">
+    <h1 style="font-size: 40px; margin-bottom: 20px; text-shadow: 2px 4px 10px rgba(0,0,0,0.2);">САД д. МАКАРА</h1>
+    <button class="menu-btn" onclick="startGame()">ИГРАТЬ</button>
+    <p>Создатель: д. Макар</p>
+</div>
+
+<div id="game-ui">
+    <div id="top-bar">
+        <div id="stats">💰 <span id="money">100</span></div>
+        <button id="back-to-menu-btn" onclick="exitToMenu()">В МЕНЮ</button>
+    </div>
+    
+    <div id="shop-container">
+        <div id="game-shop"></div>
+        <div id="shop-timer">05:00</div>
+    </div>
+
+    <div id="controls">
+        <div class="dpad">
+            <div></div><div class="btn" id="b-u">▲</div><div></div>
+            <div class="btn" id="b-l">◀</div><div class="btn" id="b-d">▼</div><div class="btn" id="b-r">▶</div>
+        </div>
+        <button class="btn-act" id="b-a">ОК</button>
+    </div>
+</div>
+
+<script type="importmap">
+    { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+</script>
+
+<script type="module">
+    import * as THREE from 'three';
+
+    let isGameRunning = false, money = 100, selected = null;
+    const plants = [];
+
+    // БАЗА ДАННЫХ (те же 30 видов, сокращено для примера)
+    const ALL_ITEMS = [
+        { n: '🍎', c: 5, cl: 0xff4d4d, r: 10, p: 90 },
+        { n: '🥕', c: 10, cl: 0xffa502, r: 22, p: 80 },
+        { n: '🫐', c: 150, cl: 0x4834d4, r: 400, p: 20 },
+        { n: '💎', c: 2000, cl: 0x0fbcf9, r: 8000, p: 2 }
+    ];
+
+    // ФУНКЦИИ МЕНЮ
+    window.startGame = () => {
+        document.getElementById('main-menu').style.display = 'none';
+        document.getElementById('game-ui').style.display = 'block';
+        isGameRunning = true;
+        refreshShop();
+    };
+
+    window.exitToMenu = () => {
+        saveGame();
+        document.getElementById('main-menu').style.display = 'flex';
+        document.getElementById('game-ui').style.display = 'none';
+        isGameRunning = false;
+    };
+
+    function saveGame() {
+        localStorage.setItem('garden_save', JSON.stringify({money}));
+    }
+
+    function loadGame() {
+        const saved = localStorage.getItem('garden_save');
+        if(saved) {
+            money = JSON.parse(saved).money;
+            document.getElementById('money').innerText = money;
+        }
+    }
+
+    // ЛОГИКА МАГАЗИНА (с ротацией)
+    function refreshShop() {
+        const shopEl = document.getElementById('game-shop');
+        shopEl.innerHTML = '';
+        let available = ALL_ITEMS.sort(() => 0.5 - Math.random()).slice(0, 4);
+        
+        available.forEach((item, i) => {
+            const div = document.createElement('div');
+            div.className = 'shop-item' + (i === 0 ? ' active' : '');
+            item.stock = Math.floor(Math.random()*5)+2;
+            div.innerHTML = `<span>${item.n} $${item.c}</span> <span style="color:#e67e22">x${item.stock}</span>`;
+            div.onclick = () => {
+                document.querySelectorAll('.shop-item').forEach(el => el.classList.remove('active'));
+                div.classList.add('active');
+                selected = item;
+                selected.uiId = i;
+            };
+            shopEl.appendChild(div);
+            if(i === 0) selected = item;
+        });
+    }
+
+    // ОСНОВНОЙ ЦИКЛ THREE.JS (Упрощенный для стабильности)
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x7bed9f);
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.MeshStandardMaterial({ color: 0x2ed573 }));
+    ground.rotation.x = -Math.PI/2;
+    scene.add(ground);
+
+    const player = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 0.5), new THREE.MeshStandardMaterial({ color: 0x1e90ff }));
+    player.position.y = 0.5;
+    scene.add(player);
+    camera.position.set(0, 10, 10);
+
+    const move = { u:0, d:0, l:0, r:0 };
+    const setupMove = (id, k) => {
+        const el = document.getElementById(id);
+        el.addEventListener('touchstart', (e) => { e.preventDefault(); move[k] = 1; });
+        el.addEventListener('touchend', () => move[k] = 0);
+    };
+    setupMove('b-u','u'); setupMove('b-d','d'); setupMove('b-l','l'); setupMove('b-r','r');
+
+    document.getElementById('b-a').onclick = () => {
+        if(!isGameRunning) return;
+        // Логика посадки (Кластеры)
+        if(money >= selected.c && selected.stock > 0) {
+            money -= selected.c;
+            selected.stock--;
+            const group = [];
+            for(let i=0; i<3; i++) {
+                const p = new THREE.Mesh(new THREE.SphereGeometry(0.2), new THREE.MeshStandardMaterial({ color: selected.cl }));
+                p.position.set(player.position.x + (Math.random()-0.
+                                                    
