@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Garden by Makar Pro</title>
+    <link rel="manifest" href="manifest.json">
+    <style>
+        * { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; outline: none; }
+        body { margin: 0; background: #1a1a1a; overflow: hidden; touch-action: none; font-family: 'Segoe UI', sans-serif; }
+        
+        /* Главное меню */
+        #main-menu {
+            position: absolute; width: 100%; height: 100%;
+            background: radial-gradient(circle, #2ecc71, #27ae60); z-index: 500;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; color: white;
+        }
+        .menu-btn { padding: 15px 45px; font-size: 22px; border-radius: 20px; border: none; background: white; color: #27ae60; font-weight: bold; margin: 10px; box-shadow: 0 6px 0 #1e8449; active { transform: translateY(3px); box-shadow: 0 3px 0 #1e8449; } }
+
+        /* Игровой интерфейс */
+        #game-ui { display: none; position: absolute; width: 100%; height: 100%; pointer-events: none; z-index: 100; }
+        #top-bar { position: absolute; top: 15px; left: 15px; display: flex; flex-direction: column; gap: 10px; pointer-events: auto; }
+        #stats { color: white; background: rgba(0,0,0,0.7); padding: 10px 20px; border-radius: 15px; font-size: 20px; font-weight: bold; border: 2px solid rgba(255,255,255,0.2); }
+        #back-btn { padding: 8px 15px; background: #e74c3c; color: white; border: none; border-radius: 10px; font-weight: bold; box-shadow: 0 4px 0 #c0392b; }
+
+        /* Магазин */
+        #shop-container { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; align-items: flex-end; pointer-events: auto; width: 170px; }
+        #game-shop { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+        .shop-item { background: white; border: 2px solid #ddd; padding: 8px; border-radius: 12px; font-size: 14px; font-weight: bold; color: #333; display: flex; justify-content: space-between; align-items: center; }
+        .shop-item.active { border-color: #f39c12; background: #fff9eb; transform: scale(1.02); }
+        #shop-timer { color: white; background: rgba(0,0,0,0.6); padding: 5px; border-radius: 8px; font-size: 12px; margin-top: 6px; width: 100%; text-align: center; font-weight: bold; }
+
+        /* Кнопки управления */
+        #controls { position: absolute; bottom: 30px; width: 100%; display: flex; justify-content: space-around; pointer-events: none; }
+        .dpad { display: grid; grid-template-columns: repeat(3, 70px); gap: 10px; pointer-events: auto; }
+        .btn { width: 70px; height: 70px; background: rgba(255,255,255,0.2); border: 2px solid white; border-radius: 20px; color: white; font-size: 30px; display: flex; align-items: center; justify-content: center; }
+        .btn-act { width: 100px; height: 100px; background: #ff9800; border-radius: 50%; border: 5px solid white; color: white; pointer-events: auto; font-size: 20px; font-weight: bold; box-shadow: 0 6px 20px rgba(0,0,0,0.3); }
+    </style>
+</head>
+<body>
+
+<div id="main-menu">
+    <h1 style="font-size: 42px; margin-bottom: 30px; text-shadow: 2px 4px 0px #1e8449;">GARDEN 3D</h1>
+    <button class="menu-btn" onclick="startGame()">ИГРАТЬ</button>
+    <p style="margin-top: 20px; opacity: 0.8;">Создатель: д. Макар</p>
+</div>
+
+<div id="game-ui">
+    <div id="top-bar">
+        <div id="stats">💰 <span id="moneyText">100</span></div>
+        <button id="back-btn" onclick="exitToMenu()">В МЕНЮ</button>
+    </div>
+    <div id="shop-container">
+        <div id="game-shop"></div>
+        <div id="shop-timer">Обновление: --:--</div>
+    </div>
+    <div id="controls">
+        <div class="dpad">
+            <div></div><div class="btn" id="b-u">▲</div><div></div>
+            <div class="btn" id="b-l">◀</div><div class="btn" id="b-d">▼</div><div class="btn" id="b-r">▶</div>
+        </div>
+        <button class="btn-act" id="b-a">СБОР/ОК</button>
+    </div>
+</div>
+
+<script type="importmap"> { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } } </script>
+<script type="module">
+    import * as THREE from 'three';
+
+    let isGameRunning = false, money = 100, selected = null;
+    const plants = [];
+    const move = { u:0, d:0, l:0, r:0 };
+
+    // 30 ВИДОВ РАСТЕНИЙ
+    const ALL_ITEMS = [
+        {n:'🍎',c:5,cl:0xff4d4d,r:15,p:95}, {n:'🥕',c:10,cl:0xffa502,r:30,p:90}, {n:'🍅',c:15,cl:0xff6b81,r:45,p:85},
+        {n:'🍆',c:20,cl:0xa55eea,r:65,p:80}, {n:'🌽',c:30,cl:0xffed33,r:100,p:75}, {n:'🍇',c:45,cl:0x706fd3,r:150,p:70},
+        {n:'🍉',c:60,cl:0x26de81,r:200,p:65}, {n:'🍓',c:80,cl:0xff4757,r:280,p:60}, {n:'🍒',c:100,cl:0xeb4d4b,r:350,p:55},
+        {n:'🫐',c:150,cl:0x4834d4,r:550,p:50}, {n:'🥝',c:200,cl:0x6ab04c,r:750,p:45}, {n:'🥑',c:300,cl:0xbadc58,r:1100,p:40},
+        {n:'🍄',c:400,cl:0xff7979,r:1500,p:35}, {n:'🍍',c:550,cl:0xf1c40f,r:2100,p:30}, {n:'🍊',c:700,cl:0xe67e22,r:2800,p:25},
+        {n:'🍋',c:900,cl:0xf1f200,r:3800,p:20}, {n:'🥥',c:1200,cl:0xf1f2f6,r:5200,p:15}, {n:'🍈',c:1500,cl:0x7bed9f,r:7000,p:12},
+        {n:'🍐',c:2000,cl:0xbadc58,r:9500,p:10}, {n:'🌶️',c:3000,cl:0xee5253,r:15000,p:8}, {n:'🌰',c:4500,cl:0x795548,r:22000,p:6},
+        {n:'🍀',c:6000,cl:0x2ecc71,r:35000,p:5}, {n:'🍭',c:8000,cl:0xff9ff3,r:50000,p:4}, {n:'🔔',c:12000,cl:0xffd32a,r:80000,p:3},
+        {n:'🌟',c:20000,cl:0xfffa65,r:150000,p:2}, {n:'💎',c:50000,cl:0x0fbcf9,r:400000,p:1}, {n:'👑',c:100000,cl:0xffdd59,r:900000,p:0.5},
+        {n:'🌠',c:250000,cl:0x575fcf,r:2500000,p:0.2}, {n:'🥚',c:500000,cl:0xffffff,r:6000000,p:0.1}, {n:'🪐',c:1000000,cl:0x1e272e,r:15000000,p:0.05}
+    ];
+
+    // ИНИЦИАЛИЗАЦИЯ
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x7bed9f);
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.MeshStandardMaterial({ color: 0x2ed573 }));
+    ground.rotation.x = -Math.PI/2;
+    scene.add(ground);
+
+    const player = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 0.5), new THREE.MeshStandardMaterial({ color: 0x1e90ff }));
+    player.position.y = 0.5;
+    scene.add(player);
+    camera.position.set(0, 10, 10);
+
+    // УПРАВЛЕНИЕ
+    const setupBtn = (id, k) => {
+        const el = document.getElementById(id);
+        el.addEventListener('touchstart', (e) => { e.preventDefault(); move[k] = 1; });
+        el.addEventListener('touchend', () => move[k] = 0);
+    };
+    setupBtn('b-u','u'); setupBtn('b-d','d'); setupBtn('b-l','l'); setupBtn('b-r','r');
+
+    // МАГАЗИН И ТАЙМЕР
+    function refreshShop() {
+        const shop = document.getElementById('game-shop');
+        shop.innerHTML = '';
+        let available = [];
+        while(available.length < 4) {
+            let item = ALL_ITEMS[Math.floor(Math.random() * ALL_ITEMS.length)];
+            if(Math.random() * 100 <= item.p && !available.includes(item)) {
+                item.stock = Math.floor(Math.random() * 5) + 3;
+                available.push(item);
+            }
+        }
+        available.forEach((item, i) => {
+            const div = document.createElement('div');
+            div.className = 'shop-item' + (i===0 ? ' active' : '');
+            div.innerHTML = `<span>${item.n} $${item.c}</span> <span id="st-${i}">x${item.stock}</span>`;
+            div.onclick = () => {
+                document.querySelectorAll('.shop-item').forEach(el => el.classList.remove('active'));
+                div.classList.add('active');
+                selected = item;
+                selected.uiId = i;
+            };
+            shop.appendChild(div);
+            if(i === 0) { selected = item; selected.uiId = 0; }
+        });
+    }
+
+    function updateTimer() {
+        const now = Date.now();
+        const cycle = 5 * 60 * 1000;
+        const timeLeft = (Math.ceil(now / cycle) * cycle) - now;
+        const mins = Math.floor(timeLeft / 60000);
+        const secs = Math.floor((timeLeft % 60000) / 1000);
+        document.getElementById('shop-timer').innerText = `Обновление: ${mins}:${secs < 10 ? '0' + secs : secs}`;
+        if (timeLeft <= 1000) setTimeout(refreshShop, 1100);
+    }
+
+    // ДЕЙСТВИЕ
+    document.getElementById('b-a').onclick = () => {
+        if(!isGameRunning) return;
+        let collected = false;
+        for(let i = plants.length - 1; i >= 0; i--) {
+            if(plants[i][0].position.distanceTo(player.position) < 2) {
+                plants[i].forEach(p => scene.remove(p));
+                money += (plants[i][0].userData.reward * plants[i].length);
+                plants.splice(i, 1);
+                collected = true; break;
+            }
+        }
+        if(!collected && selected && selected.stock > 0 && money >= selected.c) {
+            money -= selected.c;
+            selected.stock--;
+            document.getElementById(`st-${selected.uiId}`).innerText = 'x' + selected.stock;
+            const group = [];
+            const count = 3 + Math.floor(Math.random()*4);
+            for(let i=0; i<count; i++) {
+                const p = new THREE.Mesh(new THREE.SphereGeometry(0.3), new THREE.MeshStandardMaterial({ color: selected.cl }));
+                p.position.set(player.position.x + (Math.random()-0.5)*1.8, 0.3, player.position.z + (Math.random()-0.5)*1.8);
+                p.userData = { reward: selected.r };
+                scene.add(p); group.push(p);
+            }
+            plants.push(group);
+        }
+        document.getElementById('moneyText').innerText = Math.floor(money);
+    };
+
+    window.startGame = () => {
+        document.getElementById('main-menu').style.display = 'none';
+        document.getElementById('game-ui').style.display = 'block';
+        isGameRunning = true;
+        refreshShop();
+    };
+
+    window.exitToMenu = () => {
+        localStorage.setItem('garden_money_v3', money);
+        location.reload();
+    };
+
+    function animate() {
+        requestAnimationFrame(animate);
+        if(isGameRunning) {
+            const s = 0.16;
+            if(move.u) player.position.z -= s; if(move.d) player.position.z += s;
+            if(move.l) player.position.x -= s; if(move.r) player.position.x += s;
+            camera.position.lerp(new THREE.Vector3(player.position.x, 10, player.position.z + 10), 0.1);
+            camera.lookAt(player.position);
+            updateTimer();
+        }
+        renderer.render(scene, camera);
+    }
+
+    const saved = localStorage.getItem('garden_money_v3');
+    if(saved) money = parseInt(saved);
+    document.getElementById('moneyText').innerText = money;
+    animate();
+</script>
+</body>
+</html>
